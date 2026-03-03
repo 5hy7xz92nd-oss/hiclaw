@@ -51,10 +51,6 @@ fi
 if [ -z "${SKILLS_API_URL}" ] && [ -n "${HICLAW_SKILLS_API_URL}" ]; then
     SKILLS_API_URL="${HICLAW_SKILLS_API_URL}"
 fi
-# Auto-enable find-skills if a skills API URL is configured
-if [ -n "${SKILLS_API_URL}" ] && [ "${ENABLE_FIND_SKILLS}" = false ]; then
-    ENABLE_FIND_SKILLS=true
-fi
 if [ "${ENABLE_FIND_SKILLS}" = true ]; then
     if ! echo "${WORKER_SKILLS}" | grep -q '\bfind-skills\b'; then
         WORKER_SKILLS="${WORKER_SKILLS},find-skills"
