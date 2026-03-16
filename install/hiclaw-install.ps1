@@ -356,6 +356,10 @@ $script:Messages = @{
     "worker_runtime.choice" = @{ zh = "请选择 [1/2]"; en = "Enter choice [1/2]" }
     "worker_runtime.selected" = @{ zh = "默认 Worker 运行时: {0}"; en = "Default Worker runtime: {0}" }
 
+    # --- Worker idle timeout ---
+    "idle_timeout.prompt" = @{ zh = "Worker 空闲自动停止超时（分钟）[720]"; en = "Worker idle auto-stop timeout in minutes [720]" }
+    "idle_timeout.selected" = @{ zh = "Worker 空闲超时: {0} 分钟"; en = "Worker idle timeout: {0} minutes" }
+
     # --- Secrets and config ---
     "install.generating_secrets" = @{ zh = "正在生成密钥..."; en = "Generating secrets..." }
     "install.config_saved" = @{ zh = "配置已保存到 {0}"; en = "Configuration saved to {0}" }
@@ -694,6 +698,9 @@ HICLAW_COPAW_WORKER_IMAGE=$($Config.COPAW_WORKER_IMAGE)
 
 # Default Worker runtime (openclaw | copaw)
 HICLAW_DEFAULT_WORKER_RUNTIME=$($Config.DEFAULT_WORKER_RUNTIME)
+
+# Worker idle timeout in minutes (default: 720 = 12 hours)
+HICLAW_WORKER_IDLE_TIMEOUT=$($Config.WORKER_IDLE_TIMEOUT)
 
 # Higress WASM plugin image registry (auto-selected by timezone)
 HIGRESS_ADMIN_WASM_PLUGIN_IMAGE_REGISTRY=$($Config.REGISTRY)
@@ -1640,6 +1647,23 @@ function Install-Manager {
         $config.DEFAULT_WORKER_RUNTIME = if ($rtChoice -eq "2") { "copaw" } else { "openclaw" }
     }
     Write-Log (Get-Msg "worker_runtime.selected" -f $config.DEFAULT_WORKER_RUNTIME)
+
+    # Worker idle timeout (minutes, default: 720 = 12 hours)
+    if (-not $script:HICLAW_NON_INTERACTIVE -and (-not $script:HICLAW_QUICKSTART -or $script:HICLAW_UPGRADE)) {
+        if ($script:HICLAW_UPGRADE -and $env:HICLAW_WORKER_IDLE_TIMEOUT) {
+            Write-Log (Get-Msg "prompt.upgrade_keep" -f "HICLAW_WORKER_IDLE_TIMEOUT", $env:HICLAW_WORKER_IDLE_TIMEOUT)
+            $idleInput = Read-Host (Get-Msg "idle_timeout.prompt")
+            $config.WORKER_IDLE_TIMEOUT = if ($idleInput) { $idleInput } else { $env:HICLAW_WORKER_IDLE_TIMEOUT }
+        } elseif (-not $env:HICLAW_WORKER_IDLE_TIMEOUT) {
+            $idleInput = Read-Host (Get-Msg "idle_timeout.prompt")
+            $config.WORKER_IDLE_TIMEOUT = if ($idleInput) { $idleInput } else { "720" }
+        } else {
+            $config.WORKER_IDLE_TIMEOUT = $env:HICLAW_WORKER_IDLE_TIMEOUT
+        }
+    } else {
+        $config.WORKER_IDLE_TIMEOUT = if ($env:HICLAW_WORKER_IDLE_TIMEOUT) { $env:HICLAW_WORKER_IDLE_TIMEOUT } else { "720" }
+    }
+    Write-Log (Get-Msg "idle_timeout.selected" -f $config.WORKER_IDLE_TIMEOUT)
 
     Write-Log ""
 

@@ -281,7 +281,7 @@ The Manager automatically detects idle Workers during Heartbeat and stops their 
 ```json
 {
   "version": 1,
-  "idle_timeout_minutes": 30,
+  "idle_timeout_minutes": 720,
   "updated_at": "2026-02-21T10:00:00Z",
   "workers": {
     "alice": {
@@ -311,6 +311,9 @@ bash /opt/hiclaw/agent/skills/worker-management/scripts/lifecycle-worker.sh --ac
 # Check for idle Workers and auto-stop those that have exceeded the timeout
 bash /opt/hiclaw/agent/skills/worker-management/scripts/lifecycle-worker.sh --action check-idle
 
+# Ensure a Worker is ready to receive messages (auto-start if stopped, auto-recreate if missing)
+bash /opt/hiclaw/agent/skills/worker-management/scripts/lifecycle-worker.sh --action ensure-ready --worker <name>
+
 # Manually stop a Worker container
 bash /opt/hiclaw/agent/skills/worker-management/scripts/lifecycle-worker.sh --action stop --worker <name>
 
@@ -320,7 +323,7 @@ bash /opt/hiclaw/agent/skills/worker-management/scripts/lifecycle-worker.sh --ac
 
 ### Changing the Idle Timeout
 
-Edit `~/worker-lifecycle.json` directly and update the `idle_timeout_minutes` field (default: 30):
+Edit `~/worker-lifecycle.json` directly and update the `idle_timeout_minutes` field (default: 720, i.e. 12 hours):
 
 ```bash
 # Example: change to 60 minutes

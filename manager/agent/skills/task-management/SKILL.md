@@ -58,13 +58,14 @@ Ask admin: enable find-skills (recommended) or disable; optionally provide custo
 The `find-worker.sh` output already includes `container_status` and `availability`. Use it directly:
 
 1. `availability = "idle"` or `"busy"` → container is running, assign directly
-2. `availability = "stopped"` → wake up first: `lifecycle-worker.sh --action start --worker <name>`, wait 30s, then assign
-3. `availability = "unavailable"` → notify admin, Worker must be recreated via `create-worker.sh`
+2. `availability = "stopped"` → wake up first: `lifecycle-worker.sh --action ensure-ready --worker <name>`, wait for the output to confirm `status=started`, then assign
+3. `availability = "unavailable"` → try `lifecycle-worker.sh --action ensure-ready --worker <name>` first (it will attempt to recreate); if `status=failed`, notify admin that the Worker must be recreated via `create-worker.sh`
 
 If you already ran `find-worker.sh` in Step 0, you do NOT need a separate container status check — the information is already in the output. Only run a standalone check when assigning to an explicitly named Worker (Step 0 was skipped):
 
 ```bash
-bash -c 'source /opt/hiclaw/scripts/lib/container-api.sh && container_status_worker "<name>"'
+bash /opt/hiclaw/agent/skills/worker-management/scripts/lifecycle-worker.sh \
+  --action ensure-ready --worker <name>
 ```
 
 ---

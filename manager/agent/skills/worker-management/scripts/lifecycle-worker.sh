@@ -9,6 +9,7 @@
 #   lifecycle-worker.sh --action check-idle
 #   lifecycle-worker.sh --action stop --worker <name>
 #   lifecycle-worker.sh --action start --worker <name>
+#   lifecycle-worker.sh --action ensure-ready --worker <name>
 
 set -euo pipefail
 
@@ -54,7 +55,7 @@ _init_lifecycle_file() {
         cat > "$LIFECYCLE_FILE" << 'EOF'
 {
   "version": 1,
-  "idle_timeout_minutes": 30,
+  "idle_timeout_minutes": 720,
   "updated_at": "",
   "workers": {}
 }
@@ -64,11 +65,24 @@ EOF
         cat > "$LIFECYCLE_FILE" << EOF
 {
   "version": 1,
-  "idle_timeout_minutes": 30,
+  "idle_timeout_minutes": ${HICLAW_WORKER_IDLE_TIMEOUT:-720},
   "updated_at": "$(_ts)",
   "workers": {}
 }
 EOF
+    else
+        # Sync idle_timeout_minutes from env var — env file is the authority
+        local env_timeout="${HICLAW_WORKER_IDLE_TIMEOUT:-}"
+        if [ -n "$env_timeout" ]; then
+            local file_timeout
+            file_timeout=$(jq -r '.idle_timeout_minutes' "$LIFECYCLE_FILE" 2>/dev/null)
+            if [ "$file_timeout" != "$env_timeout" ]; then
+                _log "Updating idle_timeout_minutes: $file_timeout -> $env_timeout (from HICLAW_WORKER_IDLE_TIMEOUT)"
+                local tmp
+                tmp=$(mktemp)
+                jq --argjson t "$env_timeout" '.idle_timeout_minutes = $t' "$LIFECYCLE_FILE" > "$tmp" && mv "$tmp" "$LIFECYCLE_FILE"
+            fi
+        fi
     fi
 
     if [ ! -f "$STATE_FILE" ]; then
@@ -337,6 +351,66 @@ action_start() {
     fi
 }
 
+# Ensure a specific worker is ready to receive messages.
+# If the container is stopped, start it; if not_found, recreate it.
+# Outputs JSON: {"worker":"<name>","status":"ready|started|recreated|remote|failed","container_status":"..."}
+# Usage: action_ensure_ready <worker_name>
+action_ensure_ready() {
+    local worker="$1"
+    _init_lifecycle_file
+
+    # Check deployment type — skip remote workers
+    local deployment
+    deployment=$(jq -r --arg w "$worker" '.workers[$w].deployment // "local"' "$REGISTRY_FILE" 2>/dev/null)
+    if [ "$deployment" = "remote" ]; then
+        _log "Worker $worker is remote — assumed ready"
+        echo "{\"worker\":\"$worker\",\"status\":\"remote\",\"container_status\":\"remote\"}"
+        return 0
+    fi
+
+    if ! container_api_available; then
+        _log "Container API not available — cannot check worker $worker"
+        echo "{\"worker\":\"$worker\",\"status\":\"failed\",\"container_status\":\"unknown\",\"error\":\"container_api_unavailable\"}"
+        return 1
+    fi
+
+    local status
+    status=$(container_status_worker "$worker")
+    _log "Worker $worker container_status=$status"
+
+    if [ "$status" = "running" ]; then
+        echo "{\"worker\":\"$worker\",\"status\":\"ready\",\"container_status\":\"running\"}"
+        return 0
+    fi
+
+    if [ "$status" = "not_found" ]; then
+        _log "Worker $worker container not found — attempting recreate"
+        _ensure_worker_entry "$worker"
+        if action_start "$worker" 2>&1; then
+            _log "Worker $worker recreated successfully"
+            echo "{\"worker\":\"$worker\",\"status\":\"recreated\",\"container_status\":\"running\"}"
+            return 0
+        else
+            _log "ERROR: Failed to recreate worker $worker"
+            echo "{\"worker\":\"$worker\",\"status\":\"failed\",\"container_status\":\"not_found\",\"error\":\"recreate_failed\"}"
+            return 1
+        fi
+    fi
+
+    # stopped / exited / created — try to start
+    _log "Worker $worker is $status — starting"
+    _ensure_worker_entry "$worker"
+    if action_start "$worker" 2>&1; then
+        _log "Worker $worker started successfully"
+        echo "{\"worker\":\"$worker\",\"status\":\"started\",\"container_status\":\"running\"}"
+        return 0
+    else
+        _log "ERROR: Failed to start worker $worker"
+        echo "{\"worker\":\"$worker\",\"status\":\"failed\",\"container_status\":\"$status\",\"error\":\"start_failed\"}"
+        return 1
+    fi
+}
+
 # ─── Argument parsing ─────────────────────────────────────────────────────────
 
 ACTION=""
@@ -385,8 +459,15 @@ case "$ACTION" in
         fi
         action_start "$WORKER"
         ;;
+    ensure-ready)
+        if [ -z "$WORKER" ]; then
+            echo "ERROR: --worker required for action 'ensure-ready'" >&2
+            exit 1
+        fi
+        action_ensure_ready "$WORKER"
+        ;;
     *)
-        echo "ERROR: Unknown action '$ACTION'. Use: sync-status, check-idle, stop, start" >&2
+        echo "ERROR: Unknown action '$ACTION'. Use: sync-status, check-idle, stop, start, ensure-ready" >&2
         exit 1
         ;;
 esac

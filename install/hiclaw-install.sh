@@ -29,6 +29,7 @@
 #   HICLAW_PORT_GATEWAY       Host port for Higress gateway (default: 18080)
 #   HICLAW_PORT_CONSOLE       Host port for Higress console (default: 18001)
 #   HICLAW_PORT_ELEMENT_WEB   Host port for Element Web direct access (default: 18088)
+#   HICLAW_WORKER_IDLE_TIMEOUT  Worker idle timeout in minutes (default: 720, i.e. 12 hours)
 
 set -e
 
@@ -468,6 +469,11 @@ msg() {
         "matrix_e2ee.selected_enabled.en") text="Matrix E2EE: enabled" ;;
         "matrix_e2ee.selected_disabled.zh") text="Matrix E2EE: 已禁用（默认）" ;;
         "matrix_e2ee.selected_disabled.en") text="Matrix E2EE: disabled (default)" ;;
+        # --- Worker idle timeout ---
+        "idle_timeout.prompt.zh") text="Worker 空闲自动停止超时（分钟）[720]" ;;
+        "idle_timeout.prompt.en") text="Worker idle auto-stop timeout in minutes [720]" ;;
+        "idle_timeout.selected.zh") text="Worker 空闲超时: %s 分钟" ;;
+        "idle_timeout.selected.en") text="Worker idle timeout: %s minutes" ;;
         # --- YOLO mode ---
         "install.yolo.zh") text="YOLO 模式已启用（自主决策，无交互提示）" ;;
         "install.yolo.en") text="YOLO mode enabled (autonomous decisions, no interactive prompts)" ;;
@@ -1632,6 +1638,25 @@ install_manager() {
         log "$(msg matrix_e2ee.selected_disabled)"
     fi
 
+    # Worker idle timeout (shown during upgrade or manual mode)
+    if [ "${HICLAW_NON_INTERACTIVE}" != "1" ] && { [ "${HICLAW_QUICKSTART}" != "1" ] || [ "${HICLAW_UPGRADE}" = "1" ]; }; then
+        if [ "${HICLAW_UPGRADE}" = "1" ] && [ -n "${HICLAW_WORKER_IDLE_TIMEOUT}" ]; then
+            log "$(msg prompt.upgrade_keep "HICLAW_WORKER_IDLE_TIMEOUT" "${HICLAW_WORKER_IDLE_TIMEOUT}")"
+            read -e -p "$(msg idle_timeout.prompt): " _idle_timeout
+            if [ -n "${_idle_timeout}" ]; then
+                HICLAW_WORKER_IDLE_TIMEOUT="${_idle_timeout}"
+            fi
+            unset _idle_timeout
+        elif [ -z "${HICLAW_WORKER_IDLE_TIMEOUT+x}" ]; then
+            read -e -p "$(msg idle_timeout.prompt): " _idle_timeout
+            HICLAW_WORKER_IDLE_TIMEOUT="${_idle_timeout:-720}"
+            unset _idle_timeout
+        fi
+    fi
+    HICLAW_WORKER_IDLE_TIMEOUT="${HICLAW_WORKER_IDLE_TIMEOUT:-720}"
+    export HICLAW_WORKER_IDLE_TIMEOUT
+    log "$(msg idle_timeout.selected "${HICLAW_WORKER_IDLE_TIMEOUT}")"
+
     # Host directory sharing: for file sharing with agents (defaults to user's home)
     if [ "${HICLAW_NON_INTERACTIVE}" != "1" ] && [ -z "${HICLAW_HOST_SHARE_DIR}" ]; then
         read -e -p "$(msg host_share.prompt "$HOME"): " HICLAW_HOST_SHARE_DIR
@@ -1711,6 +1736,9 @@ HICLAW_DEFAULT_WORKER_RUNTIME=${HICLAW_DEFAULT_WORKER_RUNTIME:-openclaw}
 
 # Matrix E2EE (0=disabled, 1=enabled; default: 0)
 HICLAW_MATRIX_E2EE=${HICLAW_MATRIX_E2EE:-0}
+
+# Worker idle timeout in minutes (default: 720 = 12 hours)
+HICLAW_WORKER_IDLE_TIMEOUT=${HICLAW_WORKER_IDLE_TIMEOUT:-720}
 
 # Higress WASM plugin image registry (auto-selected by timezone)
 HIGRESS_ADMIN_WASM_PLUGIN_IMAGE_REGISTRY=${HICLAW_REGISTRY}
