@@ -112,6 +112,10 @@ RUN STANDARD_SITE=/opt/venv/standard/lib/python3.11/site-packages/copaw_worker \
     && cp -a /tmp/copaw-worker/src/copaw_worker/* "$LITE_SITE/" \
     && rm -rf /tmp/copaw-worker/ /tmp/lite-copaw/
 
+# copaw-sync wrapper
+RUN printf '#!/bin/bash\nexec python3 "/root/.copaw-worker/${HICLAW_WORKER_NAME}/skills/file-sync/scripts/copaw-sync.py" "$@"\n' \
+    > /usr/local/bin/copaw-sync && chmod +x /usr/local/bin/copaw-sync
+
 # Entrypoint script
 COPY --chmod=755 scripts/copaw-worker-entrypoint.sh /opt/hiclaw/scripts/copaw-worker-entrypoint.sh
 

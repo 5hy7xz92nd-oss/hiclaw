@@ -759,6 +759,26 @@ log "Cleaned up any orphaned session write locks"
 rm -rf "${HOME}/.openclaw/matrix" 2>/dev/null || true
 log "Cleaned Matrix crypto storage (will re-establish E2EE sessions)"
 
+# ── Render agent doc templates ────────────────────────────────────────────
+# Replace ${VAR} placeholders with actual values so the AI agent reads
+# plain text and never needs to resolve environment variables.
+export MANAGER_MATRIX_TOKEN MANAGER_TOKEN HIGRESS_COOKIE_FILE
+RENDER=/opt/hiclaw/scripts/lib/render-skills.sh
+log "Rendering agent doc templates..."
+# Manager-owned docs (workspace)
+bash "$RENDER" /root/manager-workspace/skills
+bash "$RENDER" /root/manager-workspace/skills-alpha
+bash "$RENDER" /root/manager-workspace AGENTS.md TOOLS.md HEARTBEAT.md SOUL.md
+# Worker templates (workspace + image) — rendered before push to MinIO
+# so Workers (including remote pip-install) receive plain text
+bash "$RENDER" /root/manager-workspace/worker-skills
+bash "$RENDER" /root/manager-workspace/worker-agent
+bash "$RENDER" /root/manager-workspace/copaw-worker-agent
+bash "$RENDER" /opt/hiclaw/agent/worker-skills
+bash "$RENDER" /opt/hiclaw/agent/worker-agent
+bash "$RENDER" /opt/hiclaw/agent/copaw-worker-agent
+log "Agent doc templates rendered"
+
 # Cloud mode: start background file sync (workspace ↔ OSS) and initial push
 if [ "${HICLAW_RUNTIME}" = "aliyun" ]; then
     log "Syncing initial workspace to OSS..."
