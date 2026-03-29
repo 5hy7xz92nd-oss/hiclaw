@@ -4,6 +4,10 @@ Record image-affecting changes to `manager/`, `worker/`, `openclaw-base/` here b
 
 ---
 
+### CoPaw Worker
+
+- **feat(copaw): RABBITSYNC AUTO ALL — extend `pull_all()` to mirror the full worker MinIO prefix automatically** — the previous sync only pulled a Manager-managed allowlist (openclaw.json, skills/, shared/). Now every sync cycle begins with an `mc mirror` of the *entire* `agents/{worker}/` prefix (without `--overwrite`), ensuring any file the Manager places in the worker's directory is automatically discovered and pulled without an explicit @mention. Manager-managed config files still receive a forced `--overwrite` update in the same cycle. The default `sync_interval` is reduced from 300 s to 60 s for more responsive auto-sync. Updated `manager/agent/copaw-worker-agent/skills/file-sync/SKILL.md` to document the new behavior.
+
 ### Controller
 
 - **fix(hiclaw): fix `hiclaw apply` silently ignoring all resources due to `loadResources()` parsing bug** — `loadResources()` called `strings.TrimSpace(line)` first (removing leading spaces), then checked `strings.HasPrefix(line, "  name:")` — this prefix could never match after trimming, so `r.Name` was always empty and every resource was silently skipped. Fixed by changing the check to `strings.HasPrefix(line, "name:")` (and the corresponding `TrimPrefix`) to match the already-trimmed line.
