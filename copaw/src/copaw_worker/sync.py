@@ -169,8 +169,8 @@ class FileSync:
 
         Called once at startup to restore all state (config, sessions, sync
         token, etc.) — mirrors the OpenClaw worker's ``mc mirror`` approach.
-        After this, the running sync uses pull_all (Manager-managed only)
-        and push_local (Worker-managed only).
+        After this, the running sync uses pull_all (AUTO ALL mode) and
+        push_local (Worker-managed only).
         """
         self._ensure_alias()
         remote = self._object_path(f"{self._prefix}/")
@@ -232,23 +232,71 @@ class FileSync:
         return self._cat(f"{self._prefix}/skills/{skill_name}/SKILL.md")
 
     def pull_all(self) -> list[str]:
-        """Pull Manager-managed files only (allowlist). Returns list of filenames that changed.
+        """AUTO ALL sync: mirror ALL files from the worker's MinIO prefix to local.
 
-        Does NOT pull AGENTS.md, SOUL.md (Worker-managed, sync up but never overwrite).
+        Extends the previous Manager-managed allowlist with a full prefix mirror
+        so that ANY file the Manager places in the worker's MinIO directory is
+        automatically discovered and pulled — no @mention required (RABBITSYNC).
+
+        Strategy:
+          1. Full prefix mirror WITHOUT --overwrite: pulls missing files not
+             present locally, but does NOT overwrite existing files that were
+             already modified locally (avoids clobbering Worker-managed state
+             between push cycles).
+          2. Targeted --overwrite mirror for Manager-managed paths (skills/, shared/)
+             and content-comparison pull for critical config files (openclaw.json,
+             config/mcporter.json) to ensure Manager config changes always land.
+
+        Returns list of relative file paths (or directory tokens) that changed.
         """
+        self._ensure_alias()
         changed: list[str] = []
-        # Manager-managed files (allowlist)
+
+        # ── Step 1: AUTO ALL — full prefix mirror (no --overwrite) ──────────────
+        # Discovers and pulls any new file the Manager placed in the worker prefix,
+        # regardless of whether we know about it in advance. Existing local files
+        # are intentionally NOT overwritten here; Manager-managed files that need
+        # forced updates are handled below with explicit --overwrite.
+        remote_prefix = self._object_path(f"{self._prefix}/")
+        local_dir_str = str(self.local_dir) + "/"
+        # Snapshot mtimes before mirror to detect what actually changed.
+        before: dict[str, float] = {}
+        for p in self.local_dir.rglob("*"):
+            if p.is_file():
+                try:
+                    before[str(p.relative_to(self.local_dir))] = p.stat().st_mtime
+                except OSError:
+                    pass
+        try:
+            _mc("mirror", remote_prefix, local_dir_str,
+                "--exclude", "credentials/**", check=False)
+        except Exception as exc:
+            logger.warning("pull_all: full prefix mirror failed (non-fatal): %s", exc)
+        # Collect newly created / updated files from the full mirror.
+        for p in self.local_dir.rglob("*"):
+            if not p.is_file():
+                continue
+            try:
+                rel = str(p.relative_to(self.local_dir))
+                new_mtime = p.stat().st_mtime
+            except OSError:
+                continue
+            if rel not in before or new_mtime > before[rel]:
+                changed.append(rel)
+
+        # ── Step 2: Manager-managed config files (--overwrite via content compare) ─
+        # These files are authoritative in MinIO; always apply the latest version.
         # Each entry: local_name -> list of remote keys (tried in order, first hit wins).
         # The fallback handles the migration period where MinIO may still have the
         # old path (mcporter-servers.json) before Manager re-runs setup-mcp-server.sh.
-        files: dict[str, list[str]] = {
+        config_files: dict[str, list[str]] = {
             "openclaw.json": [f"{self._prefix}/openclaw.json"],
             "config/mcporter.json": [
                 f"{self._prefix}/config/mcporter.json",
                 f"{self._prefix}/mcporter-servers.json",  # backward compat
             ],
         }
-        for name, keys in files.items():
+        for name, keys in config_files.items():
             content = None
             for key in keys:
                 content = self._cat(key)
@@ -261,20 +309,21 @@ class FileSync:
             if content != existing:
                 local.parent.mkdir(parents=True, exist_ok=True)
                 local.write_text(content)
-                changed.append(name)
+                if name not in changed:
+                    changed.append(name)
 
-        # Manager-managed: skills/
+        # ── Step 3: Manager-managed skills/ (--overwrite) ───────────────────────
         # Use mc mirror to pull entire skill directories (including scripts/ and references/)
         # instead of only pulling SKILL.md, to match OpenClaw worker's mc mirror behavior.
         minio_skills = self.list_skills()
         for skill_name in minio_skills:
-            remote_prefix = f"{self._prefix}/skills/{skill_name}/"
+            remote_skill = f"{self._prefix}/skills/{skill_name}/"
             local_skill_dir = self.local_dir / "skills" / skill_name
             local_skill_dir.mkdir(parents=True, exist_ok=True)
             try:
                 result = _mc(
                     "mirror",
-                    self._object_path(remote_prefix),
+                    self._object_path(remote_skill),
                     str(local_skill_dir) + "/",
                     "--overwrite",
                     check=False,
@@ -283,13 +332,15 @@ class FileSync:
                     # Restore +x on scripts (MinIO does not preserve Unix permission bits)
                     for sh in local_skill_dir.rglob("*.sh"):
                         sh.chmod(sh.stat().st_mode | 0o111)
-                    changed.append(f"skills/{skill_name}/")
+                    token = f"skills/{skill_name}/"
+                    if token not in changed:
+                        changed.append(token)
                 else:
                     logger.warning("mc mirror failed for skill %s: %s", skill_name, result.stderr)
             except Exception as exc:
                 logger.warning("Failed to mirror skill %s: %s", skill_name, exc)
 
-        # Manager-managed: shared/
+        # ── Step 4: Manager-managed shared/ (--overwrite) ───────────────────────
         # Mirror the shared directory from MinIO bucket root to local_dir/shared/
         # (shared/ lives at bucket root, not under agents/{worker_name}/)
         shared_remote = f"{_MC_ALIAS}/{self.bucket}/shared/"
@@ -304,13 +355,14 @@ class FileSync:
                 check=False,
             )
             if result.returncode == 0:
-                changed.append("shared/")
+                if "shared/" not in changed:
+                    changed.append("shared/")
             else:
                 logger.warning("mc mirror failed for shared/: %s", result.stderr)
         except Exception as exc:
             logger.warning("Failed to mirror shared/: %s", exc)
 
-        # Clean up local skill dirs removed from MinIO
+        # ── Step 5: Clean up local skill dirs removed from MinIO ─────────────────
         local_skills_dir = self.local_dir / "skills"
         if local_skills_dir.is_dir():
             minio_skill_set = set(minio_skills)
