@@ -15,9 +15,11 @@ copaw-sync
 
 This pulls `openclaw.json`, `SOUL.md`, `AGENTS.md`, and skills from MinIO and re-bridges the config. CoPaw automatically hot-reloads config changes within ~2 seconds.
 
-**Automatic background sync:**
-- Background sync also runs every 300 seconds (5 minutes) as a fallback
-- Config changes are automatically detected and hot-reloaded
+**Automatic background sync (AUTO ALL):**
+- Background sync runs every 60 seconds automatically
+- On every cycle the **full worker prefix** is mirrored from MinIO — any new file your coordinator places in your directory is pulled automatically, no `copaw-sync` call needed
+- Config files (`openclaw.json`, `config/mcporter.json`) and skills are force-updated with `--overwrite` on each cycle so coordinator changes always land
+- The `shared/` directory is also fully mirrored every cycle
 
 ## Sync task / shared files
 
@@ -41,7 +43,7 @@ mc mirror ~/.copaw-worker/<your-name>/shared/tasks/{task-id}/ ${HICLAW_STORAGE_P
 
 **When to use:**
 - When you finish work: push results back to MinIO
-- When told files have been updated urgently: run `copaw-sync` to trigger an immediate pull
+- When told files have been updated urgently: run `copaw-sync` to trigger an immediate pull (background auto-sync already runs every 60s, so explicit sync is rarely needed)
 
 Always confirm to the sender after push completes.
 
