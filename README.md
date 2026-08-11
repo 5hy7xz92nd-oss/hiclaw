@@ -142,18 +142,61 @@ No hidden agent-to-agent calls. Everything is visible and intervenable.
 
 ## Architecture
 
+```mermaid
+graph TB
+    subgraph Manager Container["hiclaw-manager"]
+        HG[Higress Gateway + Console]
+        TW[Tuwunel Matrix Homeserver]
+        MO[MinIO]
+        EW[Element Web]
+        MA[Manager Agent<br/>OpenClaw]
+    end
+
+    subgraph Worker Container A["hiclaw-worker"]
+        WA[Worker Agent<br/>OpenClaw]
+    end
+
+    subgraph Worker Container B["hiclaw-copaw-worker"]
+        WB[Worker Agent<br/>CoPaw]
+    end
+
+    Human[Human Admin] --> EW
+    Human --> TW
+    MA --> TW
+    MA --> HG
+    MA <-->|sync| MO
+    WA --> HG
+    WA <-->|sync| MO
+    WB --> HG
+    WB <-->|sync| MO
 ```
-┌─────────────────────────────────────────────┐
-│         hiclaw-manager-agent                │
-│  Higress │ Tuwunel │ MinIO │ Element Web    │
-│  Manager Agent (OpenClaw)                   │
-└──────────────────┬──────────────────────────┘
-                   │ Matrix + HTTP Files
-┌──────────────────┴──────┐  ┌────────────────┐
-│  hiclaw-worker-agent    │  │  hiclaw-worker │
-│  Worker Alice (OpenClaw)│  │  Worker Bob    │
-└─────────────────────────┘  └────────────────┘
+
+### Component Dependency Graph (from Makefile + Dockerfiles)
+
+```mermaid
+graph LR
+    A[higress/all-in-one] --> B[openclaw-base image]
+    B --> C[hiclaw-manager image]
+    B --> D[hiclaw-worker image]
+
+    E[higress/tuwunel] --> C
+    F[higress/minio] --> C
+    G[higress/mc] --> C
+    H[higress/element-web] --> C
+    I[hiclaw-controller image] --> C
+
+    G --> D
+
+    J[higress/python:3.11-slim] --> K[hiclaw-copaw-worker image]
+    G --> K
 ```
+
+Derived from:
+- `/home/runner/work/hiclaw/hiclaw/Makefile` (`build*` targets and image args)
+- `/home/runner/work/hiclaw/hiclaw/openclaw-base/Dockerfile`
+- `/home/runner/work/hiclaw/hiclaw/manager/Dockerfile`
+- `/home/runner/work/hiclaw/hiclaw/worker/Dockerfile`
+- `/home/runner/work/hiclaw/hiclaw/copaw/Dockerfile`
 
 | Component | Role |
 |-----------|------|
@@ -207,6 +250,14 @@ A built-in dashboard for observing and controlling your Agent Teams — real-tim
 | [docs/manager-guide.md](docs/manager-guide.md) | Manager configuration |
 | [docs/worker-guide.md](docs/worker-guide.md) | Worker deployment |
 | [docs/development.md](docs/development.md) | Contributing and local dev |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor workflow and PR checklist |
+
+## Changelog
+
+| | |
+|---|---|
+| [changelog/current.md](changelog/current.md) | Unreleased changes |
+| [changelog/](changelog/) | Versioned release changelogs |
 
 ## Troubleshooting
 
